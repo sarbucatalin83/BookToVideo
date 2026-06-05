@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Provider {
+  anthropic
+  google
+  openai
+}
+
+enum ModelTier {
+  fast
+  balanced
+  best
+}
+
+enum DepthPreset {
+  overview
+  standard
+  deep_dive
+}
+
+enum ThemePreset {
+  dark
+  light
+  high_contrast
+}
+
+enum ProcessingStatus {
+  pending
+  processing
+  done
+  error
+}
+
+model Book {
+  id                   String      @id @default(cuid())
+  title                String
+  author               String
+  keyConcepts          Json        @default("[]")
+  prerequisiteLevel    String?
+  chapterDescriptions  Json        @default("{}")
+  provider             Provider    @default(anthropic)
+  modelTier            ModelTier   @default(balanced)
+  depthPreset          DepthPreset @default(standard)
+  themePreset          ThemePreset @default(dark)
+  voice                String?
+  skipManualOverride   Boolean     @default(false)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  chapters Chapter[]
+
+  @@map("books")
+}
+
+model Chapter {
+  id        String          @id @default(cuid())
+  bookId    String
+  title     String
+  position  Int
+  status    ProcessingStatus @default(pending)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  book        Book         @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  chunks      Chunk[]
+  summary     Summary?
+  videoScript VideoScript?
+
+  @@index([bookId])
+  @@map("chapters")
+}
+
+model Chunk {
+  id          String          @id @default(cuid())
+  chapterId   String
+  position    Int
+  content     String
+  tokenCount  Int
+  status      ProcessingStatus @default(pending)
+  codeBlocks  Json            @default("[]")
+  principles  Json            @default("[]")
+  prevChunkId String?
+  nextChunkId String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@index([chapterId, position])
+  @@map("chunks")
+}
+
+model Summary {
+  id        String   @id @default(cuid())
+  chapterId String   @unique
+  content   String
+  createdAt DateTime @default(now())
+
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@map("summaries")
+}
+
+model VideoScript {
+  id        String          @id @default(cuid())
+  chapterId String          @unique
+  content   Json
+  status    ProcessingStatus @default(pending)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@map("video_scripts")
+}

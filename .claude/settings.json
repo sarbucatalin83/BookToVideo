@@ -1,0 +1,6 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash 'E:/EU/BookToVideo/BookToVideo/.claude/statusline-command.sh'"
+  }
+}
