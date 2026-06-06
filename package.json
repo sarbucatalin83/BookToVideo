@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "vite",
+    "dev": "docker compose up",
+    "dev:build": "docker compose up --build",
+    "dev:down": "docker compose down",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint",
     "worker": "tsx worker/index.ts",
     "server": "tsx server/index.ts",
-    "services:up": "docker compose up -d",
-    "services:down": "docker compose down",
+    "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push"
