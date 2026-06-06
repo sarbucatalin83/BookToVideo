@@ -13,4 +13,5 @@ export interface BookResponse {
   primaryLanguages: string[]
   chapters: ManifestChapter[]
   alreadyExisted?: boolean
+  isPdfUpload?: boolean
 }

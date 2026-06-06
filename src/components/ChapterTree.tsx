@@ -17,6 +17,18 @@ export function ChapterTree({ book, onReset }: Props) {
 
   return (
     <div className="space-y-6">
+      {book.isPdfUpload && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950">
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+            PDF uploaded — code block detection is best-effort
+          </p>
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+            PDF parsing cannot reliably detect code blocks or programming languages. For accurate
+            results, use an EPUB version of this book where available.
+          </p>
+        </div>
+      )}
+
       {book.alreadyExisted && (
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           This book was already in the library — showing existing record.

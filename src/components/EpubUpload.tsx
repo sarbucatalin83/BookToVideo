@@ -12,8 +12,9 @@ export function EpubUpload({ onUploadStart, onUploadError, onUploadDone }: Props
   const inputRef = useRef<HTMLInputElement>(null)
 
   async function uploadFile(file: File) {
-    if (!file.name.toLowerCase().endsWith('.epub')) {
-      onUploadError('Only EPUB files are accepted')
+    const name = file.name.toLowerCase()
+    if (!name.endsWith('.epub') && !name.endsWith('.pdf')) {
+      onUploadError('Only EPUB or PDF files are accepted')
       return
     }
 
@@ -53,7 +54,7 @@ export function EpubUpload({ onUploadStart, onUploadError, onUploadDone }: Props
     <div
       role="button"
       tabIndex={0}
-      aria-label="Upload EPUB file"
+      aria-label="Upload EPUB or PDF file"
       onDragEnter={(e) => { e.preventDefault(); setDragging(true) }}
       onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
@@ -82,14 +83,14 @@ export function EpubUpload({ onUploadStart, onUploadError, onUploadDone }: Props
         />
       </svg>
       <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-        Drop an EPUB file here or{' '}
+        Drop an EPUB or PDF file here or{' '}
         <span className="text-black dark:text-white underline underline-offset-2">browse</span>
       </p>
-      <p className="text-xs text-zinc-400 dark:text-zinc-600">Only .epub files accepted</p>
+      <p className="text-xs text-zinc-400 dark:text-zinc-600">.epub or .pdf — EPUB preferred</p>
       <input
         ref={inputRef}
         type="file"
-        accept=".epub,application/epub+zip"
+        accept=".epub,application/epub+zip,.pdf,application/pdf"
         className="hidden"
         onChange={handleChange}
       />
