@@ -2,7 +2,9 @@ import fs from 'fs/promises'
 import path from 'path'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse')
+const _pdfMod = require('pdf-parse')
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const pdfParse: (buf: Buffer) => Promise<any> = typeof _pdfMod === 'function' ? _pdfMod : _pdfMod.default
 
 export interface ParsedPdf {
   title: string
