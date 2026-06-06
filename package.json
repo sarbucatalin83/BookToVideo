@@ -8,6 +8,7 @@
     "preview": "vite preview",
     "lint": "eslint",
     "worker": "tsx worker/index.ts",
+    "server": "tsx server/index.ts",
     "services:up": "docker compose up -d",
     "services:down": "docker compose down",
     "db:generate": "prisma generate",
@@ -15,12 +16,16 @@
     "db:push": "prisma db push"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.101.0",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "bullmq": "^5.78.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "epub2": "^3.0.2",
+    "express": "^5.2.1",
     "lucide-react": "^1.17.0",
+    "multer": "^2.1.1",
     "pg": "^8.21.0",
     "prisma": "^7.8.0",
     "react": "19.2.4",
@@ -29,6 +34,8 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.1.0",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
