@@ -1,8 +1,14 @@
 import 'dotenv/config'
 import net from 'net'
 import { Worker } from 'bullmq'
+import { prisma } from '../lib/prisma'
 
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
+const REDIS_URL = process.env.REDIS_URL
+
+if (!REDIS_URL) {
+  console.error('[worker] REDIS_URL is required but not set')
+  process.exit(1)
+}
 
 function probeRedis(url: string, timeoutMs = 3000): Promise<boolean> {
   return new Promise((resolve) => {
@@ -26,8 +32,31 @@ function probeRedis(url: string, timeoutMs = 3000): Promise<boolean> {
   const worker = new Worker(
     'chapter-processing',
     async (job) => {
-      console.log(`[worker] received job ${job.id}: chapter ${job.data.chapterId}`)
-      // TODO: implement in Slice 5
+      const { chapterId } = job.data as { chapterId: string }
+      console.log(`[worker] processing chapter ${chapterId}`)
+
+      const chunks = await prisma.chunk.findMany({
+        where: { chapterId },
+        orderBy: { position: 'asc' },
+      })
+
+      const pending = chunks.filter(c => c.status !== 'done')
+
+      if (pending.length === 0) {
+        await prisma.chapter.update({ where: { id: chapterId }, data: { status: 'done' } })
+        return
+      }
+
+      await prisma.chapter.update({ where: { id: chapterId }, data: { status: 'processing' } })
+
+      for (const chunk of pending) {
+        await prisma.chunk.update({ where: { id: chunk.id }, data: { status: 'processing' } })
+        await new Promise(r => setTimeout(r, 400))
+        await prisma.chunk.update({ where: { id: chunk.id }, data: { status: 'done' } })
+      }
+
+      await prisma.chapter.update({ where: { id: chapterId }, data: { status: 'done' } })
+      console.log(`[worker] chapter ${chapterId} done`)
     },
     { connection: { url: REDIS_URL } },
   )
