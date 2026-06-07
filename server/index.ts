@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import { booksRouter } from './routes/books'
+import { chaptersRouter } from './routes/chapters'
 import { voiceRouter } from './routes/voice'
 import { getProviderEnvError } from './llm'
 import type { Provider } from './llm'
@@ -25,6 +26,7 @@ app.get('/api/config', (_req, res) => {
   res.json({ availableProviders: all.filter((p) => !getProviderEnvError(p)) })
 })
 app.use('/api/books', booksRouter)
+app.use('/api/chapter', chaptersRouter)
 app.use('/api/voice', voiceRouter)
 
 app.listen(PORT, () => {

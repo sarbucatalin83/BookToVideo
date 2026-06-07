@@ -109,6 +109,7 @@ booksRouter.post(
             id: c.id,
             title: c.title,
             position: c.position,
+            status: c.status as 'pending' | 'processing' | 'done' | 'error',
           })),
           alreadyExisted: true,
           isPdfUpload: isPdf,
@@ -164,13 +165,14 @@ booksRouter.post(
         return
       }
 
-      let chapters: Array<{ id: string; title: string; position: number }>
+      let chapters: Array<{ id: string; title: string; position: number; status: 'pending' | 'processing' | 'done' | 'error' }>
       try {
-        chapters = await prisma.chapter.findMany({
+        const raw = await prisma.chapter.findMany({
           where: { bookId: book.id },
           orderBy: { position: 'asc' },
-          select: { id: true, title: true, position: true },
+          select: { id: true, title: true, position: true, status: true },
         })
+        chapters = raw.map(c => ({ ...c, status: c.status as 'pending' | 'processing' | 'done' | 'error' }))
       } catch (err) {
         console.error(`[books] failed to fetch chapters for bookId=${book.id}:`, err)
         res.status(500).json({ error: 'Database error while fetching chapters' })

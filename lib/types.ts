@@ -2,6 +2,7 @@ export interface ManifestChapter {
   id: string
   title: string
   position: number
+  status: 'pending' | 'processing' | 'done' | 'error'
 }
 
 export interface BookResponse {
