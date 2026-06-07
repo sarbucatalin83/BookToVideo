@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { EpubUpload } from './components/EpubUpload'
 import { ParsedReview } from './components/ParsedReview'
 import { Configure } from './components/Configure'
-import { ChapterTree } from './components/ChapterTree'
 import type { BookResponse } from '../lib/types'
 
 type State =
@@ -71,10 +70,17 @@ export default function App() {
         )}
 
         {state.status === 'done' && (
-          <ChapterTree
-            book={state.book}
-            onReset={() => setState({ status: 'idle' })}
-          />
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Settings saved. Processing will be implemented here.
+            </p>
+            <button
+              onClick={() => setState({ status: 'idle' })}
+              className="text-xs text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              Start over
+            </button>
+          </div>
         )}
       </main>
     </div>
