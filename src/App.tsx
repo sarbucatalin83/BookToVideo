@@ -5,7 +5,7 @@ import type { BookResponse } from '../lib/types'
 
 type State =
   | { status: 'idle' }
-  | { status: 'uploading' }
+  | { status: 'uploading'; fileType: 'epub' | 'pdf' }
   | { status: 'done'; book: BookResponse }
   | { status: 'error'; message: string }
 
@@ -21,7 +21,7 @@ export default function App() {
 
         {state.status === 'idle' && (
           <EpubUpload
-            onUploadStart={() => setState({ status: 'uploading' })}
+            onUploadStart={(fileType) => setState({ status: 'uploading', fileType })}
             onUploadError={(message) => setState({ status: 'error', message })}
             onUploadDone={(data) => setState({ status: 'done', book: data as BookResponse })}
           />
@@ -42,7 +42,9 @@ export default function App() {
                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
               />
             </svg>
-            <p className="text-sm">Parsing EPUB and generating manifest…</p>
+            <p className="text-sm">
+              Parsing {state.fileType === 'pdf' ? 'PDF' : 'EPUB'} and generating manifest…
+            </p>
           </div>
         )}
 
