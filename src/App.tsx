@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { EpubUpload } from './components/EpubUpload'
-import { ChapterTree } from './components/ChapterTree'
+import { ParsedReview } from './components/ParsedReview'
+import { Configure } from './components/Configure'
 import type { BookResponse } from '../lib/types'
 
 type State =
   | { status: 'idle' }
-  | { status: 'uploading'; fileType: 'epub' | 'pdf' }
-  | { status: 'done'; book: BookResponse }
-  | { status: 'error'; message: string }
+  | { status: 'parsed';      book: BookResponse; file: File; provider: string }
+  | { status: 'configuring'; book: BookResponse; file: File; provider: string }
+  | { status: 'done';        book: BookResponse }
+  | { status: 'error';       message: string }
 
 export default function App() {
   const [state, setState] = useState<State>({ status: 'idle' })
@@ -21,31 +23,11 @@ export default function App() {
 
         {state.status === 'idle' && (
           <EpubUpload
-            onUploadStart={(fileType) => setState({ status: 'uploading', fileType })}
             onUploadError={(message) => setState({ status: 'error', message })}
-            onUploadDone={(data) => setState({ status: 'done', book: data as BookResponse })}
+            onUploadDone={(book, file, provider) =>
+              setState({ status: 'parsed', book, file, provider })
+            }
           />
-        )}
-
-        {state.status === 'uploading' && (
-          <div className="flex flex-col items-center gap-4 py-12 text-zinc-500 dark:text-zinc-400">
-            <svg
-              className="h-8 w-8 animate-spin"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
-            <p className="text-sm">
-              Parsing {state.fileType === 'pdf' ? 'PDF' : 'EPUB'} and generating manifest…
-            </p>
-          </div>
         )}
 
         {state.status === 'error' && (
@@ -62,11 +44,43 @@ export default function App() {
           </div>
         )}
 
-        {state.status === 'done' && (
-          <ChapterTree
+        {state.status === 'parsed' && (
+          <ParsedReview
             book={state.book}
+            file={state.file}
+            provider={state.provider}
+            onContinue={() =>
+              setState({ status: 'configuring', book: state.book, file: state.file, provider: state.provider })
+            }
+            onReprocessed={(book) =>
+              setState({ status: 'parsed', book, file: state.file, provider: state.provider })
+            }
             onReset={() => setState({ status: 'idle' })}
           />
+        )}
+
+        {state.status === 'configuring' && (
+          <Configure
+            book={state.book}
+            onConfirm={(updated) => setState({ status: 'done', book: updated })}
+            onBack={() =>
+              setState({ status: 'parsed', book: state.book, file: state.file, provider: state.provider })
+            }
+          />
+        )}
+
+        {state.status === 'done' && (
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Settings saved. Processing will be implemented here.
+            </p>
+            <button
+              onClick={() => setState({ status: 'idle' })}
+              className="text-xs text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              Start over
+            </button>
+          </div>
         )}
       </main>
     </div>

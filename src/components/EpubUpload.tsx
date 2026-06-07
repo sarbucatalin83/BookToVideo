@@ -12,26 +12,24 @@ interface ProviderOption {
 
 const PROVIDERS: ProviderOption[] = [
   { id: 'anthropic', label: 'Anthropic', description: 'Claude Haiku' },
-  { id: 'google', label: 'Google', description: 'Gemini 2.5 Flash' },
-  { id: 'openai', label: 'OpenAI', description: 'GPT-4o mini' },
+  { id: 'google',    label: 'Google',    description: 'Gemini 2.5 Flash' },
+  { id: 'openai',    label: 'OpenAI',    description: 'GPT-4o mini' },
 ]
 
 type Stage =
   | { kind: 'idle' }
   | { kind: 'uploading'; logs: string[] }
-  | { kind: 'confirming'; existingBook: BookResponse; file: File; provider: Provider; fileType: 'epub' | 'pdf' }
 
 interface Props {
-  onUploadStart: (fileType: 'epub' | 'pdf') => void
   onUploadError: (message: string) => void
-  onUploadDone: (data: unknown) => void
+  onUploadDone: (data: BookResponse, file: File, provider: string) => void
 }
 
-export function EpubUpload({ onUploadStart, onUploadError, onUploadDone }: Props) {
-  const [dragging, setDragging] = useState(false)
-  const [provider, setProvider] = useState<Provider | null>(null)
-  const [stage, setStage] = useState<Stage>({ kind: 'idle' })
-  const inputRef = useRef<HTMLInputElement>(null)
+export function EpubUpload({ onUploadError, onUploadDone }: Props) {
+  const [dragging, setDragging]   = useState(false)
+  const [provider, setProvider]   = useState<Provider | null>(null)
+  const [stage, setStage]         = useState<Stage>({ kind: 'idle' })
+  const inputRef                  = useRef<HTMLInputElement>(null)
 
   function appendLog(msg: string) {
     console.log('[upload]', msg)
@@ -42,7 +40,7 @@ export function EpubUpload({ onUploadStart, onUploadError, onUploadDone }: Props
     )
   }
 
-  async function uploadFile(file: File, opts?: { force?: boolean }) {
+  async function uploadFile(file: File) {
     const name = file.name.toLowerCase()
     if (!name.endsWith('.epub') && !name.endsWith('.pdf')) {
       onUploadError('Only EPUB or PDF files are accepted')
@@ -50,20 +48,14 @@ export function EpubUpload({ onUploadStart, onUploadError, onUploadDone }: Props
     }
 
     const fileType = name.endsWith('.pdf') ? 'pdf' : 'epub'
-
-    if (opts?.force) {
-      onUploadStart(fileType)
-    } else {
-      setStage({ kind: 'uploading', logs: [`Uploading ${file.name} (${(file.size / 1024).toFixed(1)} KB)…`] })
-    }
+    setStage({ kind: 'uploading', logs: [`Uploading ${file.name} (${(file.size / 1024).toFixed(1)} KB)…`] })
 
     const form = new FormData()
     form.append('file', file)
     form.append('provider', provider!)
-    if (opts?.force) form.append('force', 'true')
 
     try {
-      appendLog(`POST /api/books  provider=${provider} fileType=${fileType}${opts?.force ? ' force=true' : ''}`)
+      appendLog(`POST /api/books  provider=${provider} fileType=${fileType}`)
       const res = await fetch('/api/books', { method: 'POST', body: form })
       appendLog(`Server responded: HTTP ${res.status}`)
       const json = await res.json()
@@ -76,19 +68,8 @@ export function EpubUpload({ onUploadStart, onUploadError, onUploadDone }: Props
         return
       }
 
-      if ((json as BookResponse).alreadyExisted) {
-        setStage({
-          kind: 'confirming',
-          existingBook: json as BookResponse,
-          file,
-          provider: provider!,
-          fileType,
-        })
-        return
-      }
-
       setStage({ kind: 'idle' })
-      onUploadDone(json)
+      onUploadDone(json as BookResponse, file, provider!)
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       appendLog(`Network error: ${detail}`)
@@ -108,7 +89,6 @@ export function EpubUpload({ onUploadStart, onUploadError, onUploadDone }: Props
   function handleChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (file) uploadFile(file)
-    // reset so the same file can be re-selected
     e.target.value = ''
   }
 
@@ -135,60 +115,6 @@ export function EpubUpload({ onUploadStart, onUploadError, onUploadDone }: Props
             ))}
           </div>
         )}
-      </div>
-    )
-  }
-
-  if (stage.kind === 'confirming') {
-    const { existingBook, file } = stage
-    return (
-      <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-6 dark:border-zinc-700 dark:bg-zinc-900">
-        <p className="mb-1 text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-          Book already registered
-        </p>
-        <p className="mb-5 text-sm text-zinc-500 dark:text-zinc-400">
-          <span className="font-medium text-zinc-700 dark:text-zinc-200">
-            &ldquo;{existingBook.title}&rdquo;
-          </span>
-          {existingBook.author ? ` by ${existingBook.author}` : ''} is already in the database
-          with {existingBook.chapters.length} chapter{existingBook.chapters.length !== 1 ? 's' : ''}.
-          Would you like to reprocess it?
-        </p>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              setStage({ kind: 'idle' })
-              onUploadDone(existingBook)
-            }}
-            className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500"
-          >
-            Use existing
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setStage({ kind: 'idle' })
-              uploadFile(file, { force: true })
-            }}
-            className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-          >
-            Reprocess
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setStage({ kind: 'idle' })
-              if (inputRef.current) inputRef.current.value = ''
-            }}
-            className="ml-auto text-xs text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300"
-          >
-            Cancel
-          </button>
-        </div>
-        <p className="mt-4 text-xs text-zinc-400 dark:text-zinc-600">
-          Reprocessing deletes the existing record and all its data.
-        </p>
       </div>
     )
   }

@@ -1,6 +1,9 @@
 import 'dotenv/config'
 import express from 'express'
 import { booksRouter } from './routes/books'
+import { voiceRouter } from './routes/voice'
+import { getProviderEnvError } from './llm'
+import type { Provider } from './llm'
 
 process.on('uncaughtException', (err) => {
   console.error('[server] uncaughtException — server will exit:', err)
@@ -17,7 +20,12 @@ const PORT = process.env.API_PORT ?? 3001
 
 app.use(express.json())
 app.get('/health', (_req, res) => res.json({ ok: true }))
+app.get('/api/config', (_req, res) => {
+  const all: Provider[] = ['anthropic', 'google', 'openai']
+  res.json({ availableProviders: all.filter((p) => !getProviderEnvError(p)) })
+})
 app.use('/api/books', booksRouter)
+app.use('/api/voice', voiceRouter)
 
 app.listen(PORT, () => {
   console.log(`[server] API server running on http://localhost:${PORT}`)
