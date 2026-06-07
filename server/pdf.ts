@@ -29,6 +29,60 @@ function isHeadingLine(line: string): boolean {
   return CHAPTER_PATTERNS.some((p) => p.test(trimmed))
 }
 
+// Extract chapter titles from the PDF outline (bookmarks sidebar).
+// Returns null if the document has no outline or the outline is empty.
+function chaptersFromOutline(
+  outline: Array<{ title?: string; items?: unknown[] }> | null,
+): Array<{ id: string; title: string; position: number }> | null {
+  if (!outline?.length) return null
+  const chapters: Array<{ id: string; title: string; position: number }> = []
+  for (const item of outline) {
+    if (!item.title?.trim() || chapters.length >= 100) break
+    chapters.push({ id: `chapter-${chapters.length}`, title: item.title.trim(), position: chapters.length })
+  }
+  return chapters.length > 0 ? chapters : null
+}
+
+// Scan the extracted text for a visible "Table of Contents" page and parse
+// chapter titles from it. Returns null if no TOC section is found.
+function chaptersFromTocText(
+  lines: string[],
+): Array<{ id: string; title: string; position: number }> | null {
+  // Look for the TOC heading in the first 300 lines
+  let tocStart = -1
+  for (let i = 0; i < Math.min(lines.length, 300); i++) {
+    if (/^(?:table\s+of\s+)?contents?$/i.test(lines[i].trim())) {
+      tocStart = i + 1
+      break
+    }
+  }
+  if (tocStart === -1) return null
+
+  const chapters: Array<{ id: string; title: string; position: number }> = []
+  let consecutiveEmpty = 0
+
+  for (let i = tocStart; i < lines.length && chapters.length < 100; i++) {
+    const trimmed = lines[i].trim()
+
+    if (!trimmed) {
+      if (++consecutiveEmpty > 4) break // end of TOC section
+      continue
+    }
+    consecutiveEmpty = 0
+
+    // TOC entries always end with a page number — skip lines that don't
+    if (!/\d+\s*$/.test(trimmed)) continue
+
+    // Strip trailing page number: "Chapter Name ......... 15" → "Chapter Name"
+    const cleaned = trimmed.replace(/[\s.…\-–]+\d+\s*$/, '').trim()
+    if (!cleaned || cleaned.length < 3 || cleaned.length > 120) continue
+
+    chapters.push({ id: `chapter-${chapters.length}`, title: cleaned, position: chapters.length })
+  }
+
+  return chapters.length > 0 ? chapters : null
+}
+
 function detectChapters(
   lines: string[],
 ): Array<{ id: string; title: string; position: number }> {
@@ -38,7 +92,7 @@ function detectChapters(
     const line = lines[i].trim()
     if (!isHeadingLine(line)) continue
 
-    // Require surrounding blank lines (or start/end of content) to reduce noise
+    // Require at least one surrounding blank line to reduce noise
     const prevBlank = i === 0 || lines[i - 1].trim() === ''
     const nextBlank = i === lines.length - 1 || lines[i + 1].trim() === ''
 
@@ -155,10 +209,8 @@ export async function parsePdf(filePath: string): Promise<ParsedPdf> {
 
   let infoResult: Awaited<ReturnType<typeof parser.getInfo>>
   let textResult: Awaited<ReturnType<typeof parser.getText>>
+  let outlineChapters: Array<{ id: string; title: string; position: number }> | null = null
   try {
-    // Call sequentially so load() only runs once — calling both in Promise.all
-    // triggers two concurrent pdfjs.getDocument() calls on the same data, which
-    // can deadlock inside the fake in-process PDF.js worker.
     let timeoutHandle: ReturnType<typeof setTimeout>
     const timeout = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(
@@ -168,6 +220,20 @@ export async function parsePdf(filePath: string): Promise<ParsedPdf> {
     })
     timeout.catch(() => {}) // prevent unhandled rejection if timer fires after success
     infoResult = await Promise.race([parser.getInfo(), timeout])
+
+    // After getInfo() the pdfjs document proxy is available — use it to read
+    // the PDF outline (bookmarks), which is the most reliable chapter source.
+    const pdfDoc = (parser as unknown as { doc?: { getOutline?: () => Promise<Array<{ title?: string; items?: unknown[] }> | null> } }).doc
+    if (typeof pdfDoc?.getOutline === 'function') {
+      try {
+        const outline = await pdfDoc.getOutline()
+        outlineChapters = chaptersFromOutline(outline)
+        console.log(`[pdf] outline chapters: ${outlineChapters?.length ?? 0}`)
+      } catch (err) {
+        console.warn('[pdf] getOutline() failed, skipping:', err)
+      }
+    }
+
     textResult = await Promise.race([parser.getText(), timeout])
     clearTimeout(timeoutHandle!)
     if (eventError) throw eventError
@@ -189,9 +255,26 @@ export async function parsePdf(filePath: string): Promise<ParsedPdf> {
   const lines: string[] = textResult.text.split('\n')
   console.log(`[pdf] text extracted — ${lines.length} lines, ${textResult.text.length} chars`)
 
+  // Chapter detection priority:
+  // 1. PDF outline (bookmarks) — authoritative when present
+  // 2. Visible TOC page in extracted text
+  // 3. Regex heading scan
+  // 4. Page-break fallback (inside detectChapters)
   console.log(`[pdf] detecting chapters…`)
-  const chapters = detectChapters(lines)
-  console.log(`[pdf] detected ${chapters.length} chapter(s)`)
+  let chapters: Array<{ id: string; title: string; position: number }>
+  if (outlineChapters) {
+    console.log(`[pdf] using PDF outline — ${outlineChapters.length} chapter(s)`)
+    chapters = outlineChapters
+  } else {
+    const tocChapters = chaptersFromTocText(lines)
+    if (tocChapters) {
+      console.log(`[pdf] using TOC text — ${tocChapters.length} chapter(s)`)
+      chapters = tocChapters
+    } else {
+      chapters = detectChapters(lines)
+      console.log(`[pdf] using regex scan — ${chapters.length} chapter(s)`)
+    }
+  }
 
   const introText = extractIntroText(lines)
   console.log(`[pdf] intro text — ${introText.length} chars`)
