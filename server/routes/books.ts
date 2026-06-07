@@ -32,6 +32,11 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB
 })
 
+const VALID_PROVIDERS: Provider[] = ['anthropic', 'google', 'openai']
+const VALID_TIERS = ['fast', 'balanced', 'best']
+const VALID_DEPTHS = ['overview', 'standard', 'deep_dive']
+const VALID_THEMES = ['dark', 'light', 'high_contrast']
+
 booksRouter.post(
   '/',
   (_req, _res, next) => { console.log('[books] POST / hit — before multer'); next() },
@@ -42,7 +47,6 @@ booksRouter.post(
       return
     }
 
-    const VALID_PROVIDERS: Provider[] = ['anthropic', 'google', 'openai']
     const provider = req.body?.provider as string
     const force = req.body?.force === 'true'
     if (!VALID_PROVIDERS.includes(provider as Provider)) {
@@ -96,6 +100,11 @@ booksRouter.post(
           keyConcepts: existing.keyConcepts as string[],
           prerequisiteLevel: existing.prerequisiteLevel ?? 'unknown',
           primaryLanguages: [],
+          provider: existing.provider,
+          modelTier: existing.modelTier,
+          depthPreset: existing.depthPreset,
+          themePreset: existing.themePreset,
+          voice: existing.voice,
           chapters: existing.chapters.map((c) => ({
             id: c.id,
             title: c.title,
@@ -177,6 +186,11 @@ booksRouter.post(
         keyConcepts: llm.keyConcepts,
         prerequisiteLevel: llm.prerequisiteLevel,
         primaryLanguages: parsed.primaryLanguages,
+        provider: book.provider,
+        modelTier: book.modelTier,
+        depthPreset: book.depthPreset,
+        themePreset: book.themePreset,
+        voice: book.voice,
         chapters,
         isPdfUpload: isPdf,
       }
@@ -192,6 +206,63 @@ booksRouter.post(
     }
   },
 )
+
+booksRouter.patch('/:id', async (req: Request, res: Response): Promise<void> => {
+  const { id } = req.params
+  const { provider, modelTier, depthPreset, themePreset, voice } = req.body as {
+    provider?: string
+    modelTier?: string
+    depthPreset?: string
+    themePreset?: string
+    voice?: string | null
+  }
+
+  if (provider !== undefined && !VALID_PROVIDERS.includes(provider as Provider)) {
+    res.status(400).json({ error: 'Invalid provider' })
+    return
+  }
+  if (modelTier !== undefined && !VALID_TIERS.includes(modelTier)) {
+    res.status(400).json({ error: 'Invalid modelTier' })
+    return
+  }
+  if (depthPreset !== undefined && !VALID_DEPTHS.includes(depthPreset)) {
+    res.status(400).json({ error: 'Invalid depthPreset' })
+    return
+  }
+  if (themePreset !== undefined && !VALID_THEMES.includes(themePreset)) {
+    res.status(400).json({ error: 'Invalid themePreset' })
+    return
+  }
+
+  try {
+    const book = await prisma.book.update({
+      where: { id },
+      data: {
+        ...(provider && { provider: provider as Provider }),
+        ...(modelTier && { modelTier: modelTier as 'fast' | 'balanced' | 'best' }),
+        ...(depthPreset && { depthPreset: depthPreset as 'overview' | 'standard' | 'deep_dive' }),
+        ...(themePreset && { themePreset: themePreset as 'dark' | 'light' | 'high_contrast' }),
+        ...(voice !== undefined && { voice: voice ?? null }),
+      },
+    })
+    console.log(`[books] PATCH /${id} — saved config provider=${book.provider} tier=${book.modelTier} depth=${book.depthPreset}`)
+    res.json({
+      provider: book.provider,
+      modelTier: book.modelTier,
+      depthPreset: book.depthPreset,
+      themePreset: book.themePreset,
+      voice: book.voice,
+    })
+  } catch (err) {
+    const code = (err as { code?: string }).code
+    if (code === 'P2025') {
+      res.status(404).json({ error: 'Book not found' })
+      return
+    }
+    console.error(`[books] PATCH /${id} failed:`, err)
+    res.status(500).json({ error: 'Failed to update book settings' })
+  }
+})
 
 // Multer error handler (e.g. wrong file type, size limit)
 booksRouter.use((err: Error, _req: Request, res: Response, _next: unknown) => {

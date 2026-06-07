@@ -12,6 +12,11 @@ export interface BookResponse {
   prerequisiteLevel: string
   primaryLanguages: string[]
   chapters: ManifestChapter[]
+  provider: string
+  modelTier: string
+  depthPreset: string
+  themePreset: string
+  voice: string | null
   alreadyExisted?: boolean
   isPdfUpload?: boolean
 }
