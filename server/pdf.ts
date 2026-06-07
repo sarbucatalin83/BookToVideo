@@ -1,10 +1,10 @@
 import fs from 'fs/promises'
 import path from 'path'
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const _pdfMod = require('pdf-parse')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const pdfParse: (buf: Buffer) => Promise<any> = typeof _pdfMod === 'function' ? _pdfMod : _pdfMod.default
+// pdf-parse is imported dynamically inside parsePdf so that pdfjs-dist
+// (which it bundles) is never loaded at server startup. pdfjs-dist runs
+// initialisation code that can stall the event loop before app.listen()
+// is even called, making the entire server unresponsive.
 
 export interface ParsedPdf {
   title: string
@@ -119,19 +119,86 @@ function detectCodeBlocks(lines: string[]): {
 }
 
 export async function parsePdf(filePath: string): Promise<ParsedPdf> {
-  const buffer = await fs.readFile(filePath)
-  const data = await pdfParse(buffer)
+  console.log(`[pdf] parsing: ${filePath}`)
 
-  const rawTitle: string = data.info?.Title ?? ''
-  const rawAuthor: string = data.info?.Author ?? ''
+  let raw: Buffer
+  try {
+    raw = await fs.readFile(filePath)
+  } catch (err) {
+    console.error(`[pdf] failed to read file "${filePath}":`, err)
+    throw err
+  }
+  console.log(`[pdf] file read — ${(raw.length / 1024).toFixed(1)} KB`)
+
+  // Patch structuredClone before pdfjs-dist touches it (must happen before import).
+  // pdfjs-dist calls structuredClone(msg, { transfer: [arrayBuffer] }) inside its
+  // fake in-process worker; on some Node.js builds this throws DataCloneError.
+  // Stripping the transfer list makes it do a deep copy instead, which is fine.
+  const _origClone = globalThis.structuredClone as typeof structuredClone
+  ;(globalThis as Record<string, unknown>).structuredClone = <T>(
+    val: T,
+    opts?: StructuredSerializeOptions,
+  ): T => _origClone(val, opts?.transfer?.length ? { ...opts, transfer: [] } : opts)
+
+  console.log(`[pdf] extracting text via pdf-parse…`)
+  const { PDFParse } = await import('pdf-parse')
+  const parser = new PDFParse({ data: new Uint8Array(raw) })
+
+  // If PDFParse is an EventEmitter, an unhandled 'error' event becomes an
+  // uncaught exception and kills the process. Register a listener so the
+  // error surfaces as a rejected promise instead.
+  let eventError: unknown
+  ;(parser as unknown as { on?: (e: string, h: (err: unknown) => void) => void })
+    .on?.('error', (err) => { eventError = err })
+
+  const PDF_PARSE_TIMEOUT_MS = 60_000
+
+  let infoResult: Awaited<ReturnType<typeof parser.getInfo>>
+  let textResult: Awaited<ReturnType<typeof parser.getText>>
+  try {
+    // Call sequentially so load() only runs once — calling both in Promise.all
+    // triggers two concurrent pdfjs.getDocument() calls on the same data, which
+    // can deadlock inside the fake in-process PDF.js worker.
+    let timeoutHandle: ReturnType<typeof setTimeout>
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(
+        () => reject(new Error(`PDF parsing timed out after ${PDF_PARSE_TIMEOUT_MS / 1000}s — document may be corrupt or unsupported`)),
+        PDF_PARSE_TIMEOUT_MS,
+      )
+    })
+    timeout.catch(() => {}) // prevent unhandled rejection if timer fires after success
+    infoResult = await Promise.race([parser.getInfo(), timeout])
+    textResult = await Promise.race([parser.getText(), timeout])
+    clearTimeout(timeoutHandle!)
+    if (eventError) throw eventError
+  } catch (err) {
+    console.error(`[pdf] pdf-parse failed for "${filePath}":`, err)
+    await parser.destroy().catch((destroyErr: unknown) => {
+      console.error('[pdf] parser.destroy() also failed:', destroyErr)
+    })
+    throw err
+  }
+  await parser.destroy()
+
+  const rawTitle: string = (infoResult.info as Record<string, string>)?.Title ?? ''
+  const rawAuthor: string = (infoResult.info as Record<string, string>)?.Author ?? ''
   const title = rawTitle.trim() || path.basename(filePath, '.pdf').replace(/[-_]/g, ' ')
   const author = rawAuthor.trim() || 'Unknown Author'
+  console.log(`[pdf] metadata — title="${title}" author="${author}"`)
 
-  const lines: string[] = data.text.split('\n')
+  const lines: string[] = textResult.text.split('\n')
+  console.log(`[pdf] text extracted — ${lines.length} lines, ${textResult.text.length} chars`)
 
+  console.log(`[pdf] detecting chapters…`)
   const chapters = detectChapters(lines)
+  console.log(`[pdf] detected ${chapters.length} chapter(s)`)
+
   const introText = extractIntroText(lines)
+  console.log(`[pdf] intro text — ${introText.length} chars`)
+
+  console.log(`[pdf] detecting code blocks…`)
   const { codeBlocksDetected, languages } = detectCodeBlocks(lines)
+  console.log(`[pdf] code detection — codeBlocksDetected=${codeBlocksDetected} languages=[${languages.join(', ')}]`)
 
   const tocText = chapters.map((c, i) => `${i + 1}. ${c.title}`).join('\n')
 

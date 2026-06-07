@@ -8,7 +8,7 @@ export default defineConfig({
       usePolling: !!process.env.VITE_USE_POLL,
     },
     proxy: {
-      "/api": process.env.API_URL ?? "http://localhost:3001",
+      "/api": process.env.API_URL ?? "http://127.0.0.1:3001",
     },
   },
 })

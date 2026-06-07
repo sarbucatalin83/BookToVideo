@@ -1,0 +1,72 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<</Type /Catalog /Pages 2 0 R>>
+endobj
+2 0 obj
+<</Type /Pages /Kids [3 0 R] /Count 1>>
+endobj
+3 0 obj
+<</Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]
+  /Contents 4 0 R /Resources <</Font <</F1 5 0 R>>>>>>
+endobj
+4 0 obj
+<</Length 924>>
+stream
+BT
+/F1 11 Tf
+72 720 Td
+12 TL
+(Python Fundamentals) Tj T*
+(by Jane Smith) Tj T*
+() Tj T*
+(Chapter 1) Tj T*
+() Tj T*
+(Python is a high-level interpreted programming language with dynamic typing.) Tj T*
+(It is widely used for scripting, data analysis, and backend web services.) Tj T*
+() Tj T*
+(    def greet\(name\):) Tj T*
+(        print\(name\)) Tj T*
+(    return name) Tj T*
+() Tj T*
+(Chapter 2) Tj T*
+() Tj T*
+(Variables and data types in Python do not require explicit type declarations.) Tj T*
+() Tj T*
+(    x = 42) Tj T*
+(    name = "Alice") Tj T*
+(    items = [1, 2, 3]) Tj T*
+(    print\(type\(x\)\)) Tj T*
+() Tj T*
+(Chapter 3) Tj T*
+() Tj T*
+(Functions are first-class objects in Python, enabling functional patterns.) Tj T*
+() Tj T*
+(    import math) Tj T*
+(    def calculate_area\(radius\):) Tj T*
+(        return math.pi * radius ** 2) Tj T*
+(    result = calculate_area\(5\)) Tj T*
+(    print\(result\)) Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Font /Subtype /Type1 /BaseFont /Helvetica>>
+endobj
+6 0 obj
+<</Title (Python Fundamentals) /Author (Jane Smith)>>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000062 00000 n 
+0000000117 00000 n 
+0000000239 00000 n 
+0000001212 00000 n 
+0000001280 00000 n 
+trailer
+<</Size 7 /Root 1 0 R /Info 6 0 R>>
+startxref
+1349
+%%EOF

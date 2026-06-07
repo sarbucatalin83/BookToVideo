@@ -6,7 +6,8 @@ import fs from 'fs/promises'
 import { prisma } from '../../lib/prisma'
 import { parseEpub } from '../epub'
 import { parsePdf } from '../pdf'
-import { extractManifestFields } from '../llm'
+import { extractManifestFields, getProviderEnvError } from '../llm'
+import type { Provider } from '../llm'
 import type { BookResponse } from '../../lib/types'
 
 export const booksRouter = Router()
@@ -33,6 +34,7 @@ const upload = multer({
 
 booksRouter.post(
   '/',
+  (_req, _res, next) => { console.log('[books] POST / hit — before multer'); next() },
   upload.single('file'),
   async (req: Request, res: Response): Promise<void> => {
     if (!req.file) {
@@ -40,21 +42,53 @@ booksRouter.post(
       return
     }
 
+    const VALID_PROVIDERS: Provider[] = ['anthropic', 'google', 'openai']
+    const provider = req.body?.provider as string
+    const force = req.body?.force === 'true'
+    if (!VALID_PROVIDERS.includes(provider as Provider)) {
+      res.status(400).json({ error: 'A provider must be selected before uploading (anthropic, google, or openai)' })
+      return
+    }
+
+    const providerErr = getProviderEnvError(provider as Provider)
+    if (providerErr) {
+      res.status(400).json({ error: providerErr })
+      return
+    }
+
     const tmpPath = req.file.path
 
     const ext = path.extname(req.file.originalname).toLowerCase()
     const isPdf = ext === '.pdf'
+    const fileMeta = `"${req.file.originalname}" (${req.file.size} bytes)`
+
+    console.log(`[books] processing upload: ${fileMeta} → tmpPath=${tmpPath}`)
 
     try {
-      const parsed = isPdf ? await parsePdf(tmpPath) : await parseEpub(tmpPath)
+      let parsed: Awaited<ReturnType<typeof parsePdf>> | Awaited<ReturnType<typeof parseEpub>>
+      try {
+        parsed = isPdf ? await parsePdf(tmpPath) : await parseEpub(tmpPath)
+      } catch (err) {
+        console.error(`[books] file parse step failed for ${fileMeta}:`, err)
+        res.status(422).json({ error: 'Failed to parse uploaded file' })
+        return
+      }
 
       // Deduplication: same title + author → return existing record
-      const existing = await prisma.book.findFirst({
-        where: { title: parsed.title, author: parsed.author },
-        include: { chapters: { orderBy: { position: 'asc' } } },
-      })
+      let existing: Awaited<ReturnType<typeof prisma.book.findFirst>>
+      try {
+        existing = await prisma.book.findFirst({
+          where: { title: parsed.title, author: parsed.author },
+          include: { chapters: { orderBy: { position: 'asc' } } },
+        })
+      } catch (err) {
+        console.error(`[books] DB lookup failed for ${fileMeta}:`, err)
+        res.status(500).json({ error: 'Database error during deduplication check' })
+        return
+      }
 
-      if (existing) {
+      if (existing && !force) {
+        console.log(`[books] duplicate found — returning existing book id=${existing.id} for ${fileMeta}`)
         const body: BookResponse = {
           id: existing.id,
           title: existing.title,
@@ -74,34 +108,63 @@ booksRouter.post(
         return
       }
 
-      // LLM second pass: key concepts + prerequisite level
-      const llm = await extractManifestFields(parsed.tocText, parsed.introText)
+      if (existing && force) {
+        console.log(`[books] force reprocess — deleting existing book id=${existing.id} for ${fileMeta}`)
+        await prisma.book.delete({ where: { id: existing.id } })
+      }
+
+      // LLM second pass: key concepts + prerequisite level + chapters
+      console.log(`[books] calling LLM (${provider}) for manifest fields…`)
+      const llm = await extractManifestFields(parsed.tocText, parsed.introText, provider as Provider)
+      console.log(`[books] LLM done — keyConcepts=${llm.keyConcepts.length} prerequisiteLevel="${llm.prerequisiteLevel}" chapters=${llm.chapters.length}`)
+
+      // Prefer LLM-extracted chapters; fall back to heuristic parsed chapters
+      const chaptersToStore = llm.chapters.length > 0
+        ? llm.chapters.map((c, i) => ({ title: c.title, position: i }))
+        : parsed.chapters.map((c) => ({ title: c.title, position: c.position }))
 
       // Persist book + chapters in a single transaction
-      const book = await prisma.$transaction(async (tx) => {
-        const b = await tx.book.create({
-          data: {
-            title: parsed.title,
-            author: parsed.author,
-            keyConcepts: llm.keyConcepts,
-            prerequisiteLevel: llm.prerequisiteLevel,
-          },
+      let book: Awaited<ReturnType<typeof prisma.book.create>>
+      try {
+        book = await prisma.$transaction(async (tx) => {
+          const b = await tx.book.create({
+            data: {
+              title: parsed.title,
+              author: parsed.author,
+              keyConcepts: llm.keyConcepts,
+              prerequisiteLevel: llm.prerequisiteLevel,
+              provider: provider as Provider,
+            },
+          })
+          await tx.chapter.createMany({
+            data: chaptersToStore.map((c) => ({
+              bookId: b.id,
+              title: c.title,
+              position: c.position,
+            })),
+          })
+          return b
         })
-        await tx.chapter.createMany({
-          data: parsed.chapters.map((c) => ({
-            bookId: b.id,
-            title: c.title,
-            position: c.position,
-          })),
-        })
-        return b
-      })
+      } catch (err) {
+        console.error(`[books] DB transaction failed for ${fileMeta} (title="${parsed.title}", author="${parsed.author}"):`, err)
+        res.status(500).json({ error: 'Database error while saving book' })
+        return
+      }
 
-      const chapters = await prisma.chapter.findMany({
-        where: { bookId: book.id },
-        orderBy: { position: 'asc' },
-        select: { id: true, title: true, position: true },
-      })
+      let chapters: Array<{ id: string; title: string; position: number }>
+      try {
+        chapters = await prisma.chapter.findMany({
+          where: { bookId: book.id },
+          orderBy: { position: 'asc' },
+          select: { id: true, title: true, position: true },
+        })
+      } catch (err) {
+        console.error(`[books] failed to fetch chapters for bookId=${book.id}:`, err)
+        res.status(500).json({ error: 'Database error while fetching chapters' })
+        return
+      }
+
+      console.log(`[books] created book id=${book.id} title="${book.title}" chapters=${chapters.length} for ${fileMeta}`)
 
       const body: BookResponse = {
         id: book.id,
@@ -116,20 +179,23 @@ booksRouter.post(
 
       res.status(201).json(body)
     } catch (err) {
-      console.error('[books] error processing file:', err)
+      console.error(`[books] unexpected error processing ${fileMeta}:`, err)
       res.status(500).json({ error: 'Failed to process file' })
     } finally {
-      // Clean up temp file
-      await fs.unlink(tmpPath).catch(() => undefined)
+      await fs.unlink(tmpPath).catch((err) => {
+        console.warn(`[books] failed to delete temp file "${tmpPath}":`, err)
+      })
     }
   },
 )
 
-// Multer error handler (e.g. wrong file type)
+// Multer error handler (e.g. wrong file type, size limit)
 booksRouter.use((err: Error, _req: Request, res: Response, _next: unknown) => {
   if (err.message === 'Only EPUB or PDF files are accepted') {
+    console.warn('[books] rejected upload — wrong file type:', err.message)
     res.status(400).json({ error: err.message })
   } else {
+    console.error('[books] multer/upload error:', err)
     res.status(500).json({ error: 'Upload failed' })
   }
 })
