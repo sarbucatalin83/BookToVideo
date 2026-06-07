@@ -27,13 +27,34 @@ export async function parseEpub(filePath: string): Promise<ParsedEpub> {
   const language: string = epub.metadata.language ?? 'en'
   console.log(`[epub] metadata — title="${title}" author="${author}" lang=${language}`)
 
-  // Use TOC when available; fall back to spine flow
+  // epub2 flattens all navPoints (including nested sub-sections) into epub.toc
+  // with a `level` property: 0 = top-level, 1 = one level deep, etc.
+  // Books organised into Parts have their chapters at level 1; flat books have
+  // chapters at level 0. Pick the shallowest level that is likely "chapters":
+  // if level 0 is sparse (≤ 5 entries, i.e. probably Parts) and level 1 has
+  // substantially more entries, prefer level 1; otherwise use level 0.
   const toc: any[] = epub.toc && epub.toc.length > 0 ? epub.toc : []
   const flow: any[] = epub.flow ?? []
   console.log(`[epub] structure — toc=${toc.length} entries, flow=${flow.length} items`)
 
-  const rawItems = toc.length > 0
-    ? toc.map((item: any, idx: number) => ({
+  const byLevel = new Map<number, any[]>()
+  for (const item of toc) {
+    const lvl: number = typeof item.level === 'number' ? item.level : 0
+    if (!byLevel.has(lvl)) byLevel.set(lvl, [])
+    byLevel.get(lvl)!.push(item)
+  }
+
+  const level0 = byLevel.get(0) ?? []
+  const level1 = byLevel.get(1) ?? []
+  const chapterEntries =
+    level0.length > 0 && level0.length <= 5 && level1.length >= level0.length * 2
+      ? level1
+      : level0.length > 0
+        ? level0
+        : toc
+
+  const rawItems = chapterEntries.length > 0
+    ? chapterEntries.map((item: any, idx: number) => ({
         id: item.id as string,
         title: (item.title as string | undefined) ?? `Chapter ${idx + 1}`,
         position: (item.order as number | undefined) ?? idx,

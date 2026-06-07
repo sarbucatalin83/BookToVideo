@@ -118,8 +118,12 @@ booksRouter.post(
       const llm = await extractManifestFields(parsed.tocText, parsed.introText, provider as Provider)
       console.log(`[books] LLM done — keyConcepts=${llm.keyConcepts.length} prerequisiteLevel="${llm.prerequisiteLevel}" chapters=${llm.chapters.length}`)
 
-      // Prefer LLM-extracted chapters; fall back to heuristic parsed chapters
-      const chaptersToStore = llm.chapters.length > 0
+      // Prefer LLM-extracted chapters when the count is plausible relative to
+      // what the parser found (LLM may filter front matter, but returning fewer
+      // than half the parsed chapters almost always means truncation or aggressive
+      // filtering — fall back to the parser in that case).
+      const llmCountOk = llm.chapters.length > 0 && llm.chapters.length >= Math.ceil(parsed.chapters.length / 2)
+      const chaptersToStore = llmCountOk
         ? llm.chapters.map((c, i) => ({ title: c.title, position: i }))
         : parsed.chapters.map((c) => ({ title: c.title, position: c.position }))
 

@@ -33,13 +33,13 @@ export function getProviderEnvError(provider: Provider): string | null {
 const PROMPT = (tocText: string, introText: string) => `Given the table of contents and introduction of a book, extract:
 1. key_concepts: 5-10 core concepts a reader will learn (short phrases)
 2. prerequisite_level: one of "beginner", "intermediate", or "advanced"
-3. chapters: ordered list of chapter titles as they appear in the book (exclude front matter like preface, acknowledgements, index)
+3. chapters: ordered list of chapter titles as they appear in the book (exclude only non-content items like cover, copyright, dedication, acknowledgements, and index)
 
 Respond ONLY with valid JSON, no markdown, no explanation. Example:
 {"key_concepts":["dependency injection","async/await","type narrowing"],"prerequisite_level":"intermediate","chapters":[{"title":"Getting Started"},{"title":"Core Concepts"}]}
 
 Table of contents:
-${tocText.slice(0, 1500)}
+${tocText.slice(0, 4000)}
 
 Introduction excerpt:
 ${introText.slice(0, 800)}`
@@ -58,7 +58,7 @@ export async function extractManifestFields(
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
       const message = await client.messages.create({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
+        max_tokens: 4096,
         messages: [{ role: 'user', content: prompt }],
       })
       text = message.content[0].type === 'text' ? message.content[0].text : ''
@@ -75,7 +75,7 @@ export async function extractManifestFields(
       const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! })
       const response = await client.chat.completions.create({
         model: 'gpt-4o-mini',
-        max_tokens: 1024,
+        max_tokens: 4096,
         messages: [{ role: 'user', content: prompt }],
       })
       text = response.choices[0]?.message?.content ?? ''
