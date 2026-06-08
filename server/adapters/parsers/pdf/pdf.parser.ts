@@ -124,6 +124,9 @@ export async function parsePdf(filePath: string): Promise<ParsedBook> {
   const { codeBlocksDetected, languages } = detectCodeBlocks(lines)
   console.log(`[pdf] code detection — codeBlocksDetected=${codeBlocksDetected} languages=[${languages.join(', ')}]`)
 
+  const chapterContents = splitTextByChapters(textResult.text, chapters)
+  console.log(`[pdf] split into ${chapterContents.length} chapter segment(s)`)
+
   const tocText = chapters.map((c, i) => `${i + 1}. ${c.title}`).join('\n')
 
   return {
@@ -131,6 +134,7 @@ export async function parsePdf(filePath: string): Promise<ParsedBook> {
     author,
     language: 'en',
     chapters,
+    chapterContents,
     primaryLanguages: languages,
     tocText,
     introText,
