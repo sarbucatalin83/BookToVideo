@@ -37,6 +37,33 @@ const VALID_TIERS = ['fast', 'balanced', 'best']
 const VALID_DEPTHS = ['overview', 'standard', 'deep_dive']
 const VALID_THEMES = ['dark', 'light', 'high_contrast']
 
+// When the LLM filters front/back matter the chapter count differs from the
+// parser's count, making positional assignment wrong. Match by title instead.
+function resolveChapterContents(
+  llmChapters: Array<{ title: string }>,
+  parsedChapters: Array<{ title: string }>,
+  parsedContents: string[]
+): (string | null)[] {
+  if (llmChapters.length === parsedChapters.length) {
+    return parsedContents.map(c => c || null)
+  }
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+  let searchFrom = 0
+  return llmChapters.map((llmCh) => {
+    const target = norm(llmCh.title)
+    for (let pi = searchFrom; pi < parsedChapters.length; pi++) {
+      const candidate = norm(parsedChapters[pi].title)
+      if (target.length > 0 && (candidate === target || candidate.includes(target) || target.includes(candidate))) {
+        searchFrom = pi + 1
+        return parsedContents[pi] || null
+      }
+    }
+    const idx = Math.min(searchFrom, parsedContents.length - 1)
+    if (idx >= 0) searchFrom = idx + 1
+    return (idx >= 0 ? parsedContents[idx] : null) || null
+  })
+}
+
 booksRouter.post(
   '/',
   (_req, _res, next) => { console.log('[books] POST / hit — before multer'); next() },
@@ -137,6 +164,10 @@ booksRouter.post(
         ? llm.chapters.map((c, i) => ({ title: c.title, position: i }))
         : parsed.chapters.map((c) => ({ title: c.title, position: c.position }))
 
+      const contentMap = llmCountOk
+        ? resolveChapterContents(llm.chapters, parsed.chapters, parsed.chapterContents)
+        : parsed.chapterContents.map(c => c || null)
+
       // Persist book + chapters in a single transaction
       let book: Awaited<ReturnType<typeof prisma.book.create>>
       try {
@@ -151,10 +182,11 @@ booksRouter.post(
             },
           })
           await tx.chapter.createMany({
-            data: chaptersToStore.map((c) => ({
+            data: chaptersToStore.map((c, i) => ({
               bookId: b.id,
               title: c.title,
               position: c.position,
+              content: contentMap[i] ?? null,
             })),
           })
           return b

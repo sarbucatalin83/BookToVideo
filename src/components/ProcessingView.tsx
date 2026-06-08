@@ -14,6 +14,7 @@ interface ChunkData {
 interface Progress {
   done: number
   total: number
+  costUsd: number
 }
 
 interface Props {
@@ -34,8 +35,10 @@ export function ProcessingView({ book, onReset }: Props) {
   )
   const [activeChapter, setActiveChapter] = useState<string | null>(null)
   const [progress, setProgress] = useState<Progress | null>(null)
+  const [totalCostUsd, setTotalCostUsd] = useState(0)
   const [expandedChapterId, setExpandedChapterId] = useState<string | null>(null)
   const [chunksByChapter, setChunksByChapter] = useState<Record<string, ChunkData[]>>({})
+  const [synthesisByChapter, setSynthesisByChapter] = useState<Record<string, string | null>>({})
   const esRef = useRef<EventSource | null>(null)
   const expandedRef = useRef<string | null>(null)
 
@@ -47,6 +50,15 @@ export function ProcessingView({ book, onReset }: Props) {
       if (!res.ok) return
       const data = await res.json() as ChunkData[]
       setChunksByChapter(prev => ({ ...prev, [chapterId]: data }))
+    } catch { /* ignore */ }
+  }, [])
+
+  const fetchSynthesis = useCallback(async (chapterId: string) => {
+    try {
+      const res = await fetch(`/api/chapter/${chapterId}/summary`)
+      if (!res.ok) return
+      const data = await res.json() as { content: string | null }
+      setSynthesisByChapter(prev => ({ ...prev, [chapterId]: data.content }))
     } catch { /* ignore */ }
   }, [])
 
@@ -65,8 +77,9 @@ export function ProcessingView({ book, onReset }: Props) {
       expandedRef.current = chapterId
       setExpandedChapterId(chapterId)
       fetchChunks(chapterId)
+      fetchSynthesis(chapterId)
     }
-  }, [fetchChunks])
+  }, [fetchChunks, fetchSynthesis])
 
   const processChapter = useCallback(async (chapterId: string) => {
     esRef.current?.close()
@@ -95,16 +108,20 @@ export function ProcessingView({ book, onReset }: Props) {
       esRef.current = es
 
       es.onmessage = (event) => {
-        const msg = JSON.parse(event.data as string) as { type: string; done?: number; total?: number }
+        const msg = JSON.parse(event.data as string) as { type: string; done?: number; total?: number; costUsd?: number }
         if (msg.type === 'progress' && msg.total !== undefined && msg.done !== undefined) {
-          setProgress({ done: msg.done, total: msg.total })
+          setProgress({ done: msg.done, total: msg.total, costUsd: msg.costUsd ?? 0 })
+          if (msg.costUsd !== undefined) setTotalCostUsd(msg.costUsd)
         } else if (msg.type === 'complete') {
           setStatuses(prev => ({ ...prev, [chapterId]: 'done' }))
           setActiveChapter(null)
           setProgress(null)
           es.close()
           esRef.current = null
-          if (expandedRef.current === chapterId) fetchChunks(chapterId)
+          if (expandedRef.current === chapterId) {
+            fetchChunks(chapterId)
+            fetchSynthesis(chapterId)
+          }
         }
       }
 
@@ -119,7 +136,7 @@ export function ProcessingView({ book, onReset }: Props) {
       setStatuses(prev => ({ ...prev, [chapterId]: 'error' }))
       setActiveChapter(null)
     }
-  }, [fetchChunks])
+  }, [fetchChunks, fetchSynthesis])
 
   return (
     <div className="space-y-6">
@@ -127,6 +144,15 @@ export function ProcessingView({ book, onReset }: Props) {
         <h2 className="text-xl font-semibold text-black dark:text-white">{book.title}</h2>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">{book.author}</p>
       </div>
+
+      {totalCostUsd > 0 && (
+        <div className="flex items-center gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">Cost so far</span>
+          <span className="text-xs font-mono font-medium text-zinc-800 dark:text-zinc-200">
+            ${totalCostUsd.toFixed(4)}
+          </span>
+        </div>
+      )}
 
       <div className="space-y-1">
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
@@ -159,9 +185,8 @@ export function ProcessingView({ book, onReset }: Props) {
                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusClasses[status]}`}>
                     {status}
                   </span>
-                  {/* TODO: remove chapter.position !== 2 restriction — testing only (chapter 3) */}
                   <button
-                    disabled={status === 'done' || !!activeChapter || chapter.position !== 2}
+                    disabled={status === 'done' || !!activeChapter}
                     onClick={() => processChapter(chapter.id)}
                     className="rounded px-2.5 py-1 text-xs font-medium bg-black text-white hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -190,6 +215,17 @@ export function ProcessingView({ book, onReset }: Props) {
                           </pre>
                         </div>
                       ))
+                    )}
+
+                    {synthesisByChapter[chapter.id] && (
+                      <div className="space-y-1.5 border-t border-zinc-200 pt-4 dark:border-zinc-700">
+                        <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                          Chapter Synthesis
+                        </span>
+                        <pre className="rounded bg-indigo-50 p-3 text-xs text-indigo-900 whitespace-pre-wrap font-mono dark:bg-indigo-950 dark:text-indigo-200">
+                          {synthesisByChapter[chapter.id]}
+                        </pre>
+                      </div>
                     )}
                   </div>
                 )}
