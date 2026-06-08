@@ -1,10 +1,11 @@
 import 'dotenv/config'
 import express from 'express'
-import { booksRouter } from './routes/books'
-import { chaptersRouter } from './routes/chapters'
-import { voiceRouter } from './routes/voice'
-import { getProviderEnvError } from './llm'
-import type { Provider } from './llm'
+import { booksRouter } from './features/books/books.routes'
+import { chaptersRouter } from './features/chapters/chapters.routes'
+import { voiceRouter } from './features/voice/voice.routes'
+import { getProviderEnvError } from './adapters/llm/provider-registry'
+import type { Provider } from './adapters/llm/provider-registry'
+import { errorHandler } from './middleware/error-handler'
 
 process.on('uncaughtException', (err) => {
   console.error('[server] uncaughtException — server will exit:', err)
@@ -28,6 +29,7 @@ app.get('/api/config', (_req, res) => {
 app.use('/api/books', booksRouter)
 app.use('/api/chapter', chaptersRouter)
 app.use('/api/voice', voiceRouter)
+app.use(errorHandler)
 
 app.listen(PORT, () => {
   console.log(`[server] API server running on http://localhost:${PORT}`)

@@ -1,5 +1,7 @@
 import { Queue } from 'bullmq'
 
+export type ProcessChapterJob = { chapterId: string }
+
 let _queue: Queue | null = null
 
 export function getChapterQueue(): Queue {
