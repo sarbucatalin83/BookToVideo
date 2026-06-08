@@ -62,6 +62,7 @@ model Chapter {
   id        String          @id @default(cuid())
   bookId    String
   title     String
+  content   String?
   position  Int
   status    ProcessingStatus @default(pending)
   createdAt DateTime        @default(now())
@@ -87,6 +88,7 @@ model Chunk {
   principles  Json            @default("[]")
   prevChunkId String?
   nextChunkId String?
+  costUsd     Float           @default(0)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 

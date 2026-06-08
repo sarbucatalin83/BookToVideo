@@ -11,6 +11,7 @@ export interface ParsedPdf {
   author: string
   language: string
   chapters: Array<{ id: string; title: string; position: number }>
+  chapterContents: string[]
   primaryLanguages: string[]
   tocText: string
   introText: string
@@ -142,6 +143,32 @@ const LANG_PATTERNS: Array<[RegExp, string]> = [
   [/\busing\s+System;|Console\.Write/i, 'csharp'],
   [/\bpackage\s+main\b|fmt\.Print/i, 'go'],
 ]
+
+function splitTextByChapters(
+  fullText: string,
+  chapters: Array<{ title: string }>,
+): string[] {
+  if (chapters.length === 0) return []
+  if (chapters.length === 1) return [fullText.trim()]
+
+  const lower = fullText.toLowerCase()
+  const positions: number[] = chapters.map(ch => {
+    const pos = lower.indexOf(ch.title.toLowerCase())
+    return pos >= 0 ? pos : -1
+  })
+
+  // Fill gaps with equal-division fallback
+  const segSize = Math.floor(fullText.length / chapters.length)
+  for (let i = 0; i < positions.length; i++) {
+    if (positions[i] < 0) positions[i] = i * segSize
+  }
+
+  return chapters.map((_, i) => {
+    const start = positions[i]
+    const end = i < positions.length - 1 ? positions[i + 1] : fullText.length
+    return fullText.slice(start, end).trim()
+  })
+}
 
 function detectCodeBlocks(lines: string[]): {
   codeBlocksDetected: boolean
@@ -283,6 +310,9 @@ export async function parsePdf(filePath: string): Promise<ParsedPdf> {
   const { codeBlocksDetected, languages } = detectCodeBlocks(lines)
   console.log(`[pdf] code detection — codeBlocksDetected=${codeBlocksDetected} languages=[${languages.join(', ')}]`)
 
+  const chapterContents = splitTextByChapters(textResult.text, chapters)
+  console.log(`[pdf] split into ${chapterContents.length} chapter segment(s)`)
+
   const tocText = chapters.map((c, i) => `${i + 1}. ${c.title}`).join('\n')
 
   return {
@@ -290,6 +320,7 @@ export async function parsePdf(filePath: string): Promise<ParsedPdf> {
     author,
     language: 'en',
     chapters,
+    chapterContents,
     primaryLanguages: languages,
     tocText,
     introText,

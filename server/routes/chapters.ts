@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express'
 import { prisma } from '../../lib/prisma'
+import { chunkChapter } from '../../lib/chunker'
 import { getChapterQueue } from '../queue'
 
 export const chaptersRouter = Router()
-
-const STUB_CHUNK_COUNT = 5
 
 chaptersRouter.post('/:id/process', async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params
@@ -12,7 +11,7 @@ chaptersRouter.post('/:id/process', async (req: Request, res: Response): Promise
   try {
     const chapter = await prisma.chapter.findUnique({
       where: { id },
-      select: { id: true, status: true },
+      select: { id: true, status: true, content: true },
     })
     if (!chapter) {
       res.status(404).json({ error: 'Chapter not found' })
@@ -26,14 +25,18 @@ chaptersRouter.post('/:id/process', async (req: Request, res: Response): Promise
 
     const existingCount = await prisma.chunk.count({ where: { chapterId: id } })
     if (existingCount === 0) {
-      await prisma.chunk.createMany({
-        data: Array.from({ length: STUB_CHUNK_COUNT }, (_, i) => ({
-          chapterId: id,
-          position: i,
-          content: `[stub chunk ${i + 1}]`,
-          tokenCount: 100,
-        })),
-      })
+      if (chapter.content) {
+        await chunkChapter(id, chapter.content)
+      } else {
+        await prisma.chunk.createMany({
+          data: Array.from({ length: 3 }, (_, i) => ({
+            chapterId: id,
+            position: i,
+            content: `[no content — re-upload book to populate]`,
+            tokenCount: 10,
+          })),
+        })
+      }
     }
 
     await prisma.chunk.updateMany({
@@ -50,6 +53,17 @@ chaptersRouter.post('/:id/process', async (req: Request, res: Response): Promise
   } catch (err) {
     console.error(`[chapters] POST /${id}/process failed:`, err)
     res.status(500).json({ error: 'Failed to enqueue chapter job' })
+  }
+})
+
+chaptersRouter.get('/:id/summary', async (req: Request, res: Response): Promise<void> => {
+  const { id } = req.params
+  try {
+    const summary = await prisma.summary.findUnique({ where: { chapterId: id } })
+    res.json({ content: summary?.content ?? null })
+  } catch (err) {
+    console.error(`[chapters] GET /${id}/summary failed:`, err)
+    res.status(500).json({ error: 'Failed to fetch summary' })
   }
 })
 
@@ -107,12 +121,13 @@ chaptersRouter.get('/:id/progress', async (req: Request, res: Response): Promise
       const chunks = await prisma.chunk.findMany({
         where: { chapterId: id },
         orderBy: { position: 'asc' },
-        select: { position: true, status: true },
+        select: { position: true, status: true, costUsd: true },
       })
 
       const total = chunks.length
       const doneCount = chunks.filter(c => c.status === 'done').length
       const active = chunks.find(c => c.status === 'processing')
+      const totalCostUsd = chunks.reduce((sum, c) => sum + c.costUsd, 0)
 
       sendEvent({
         type: 'progress',
@@ -120,6 +135,7 @@ chaptersRouter.get('/:id/progress', async (req: Request, res: Response): Promise
         total,
         done: doneCount,
         status: active ? 'processing' : doneCount === total && total > 0 ? 'done' : 'pending',
+        costUsd: totalCostUsd,
       })
 
       if (doneCount === total && total > 0) {
